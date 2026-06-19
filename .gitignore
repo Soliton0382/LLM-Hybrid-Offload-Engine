@@ -1,0 +1,15 @@
+# Environments
+.env
+venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+
+# Models & Data
+models/*
+!models/.gitkeep
+*.soliton
+*.safetensors
+*.gguf
