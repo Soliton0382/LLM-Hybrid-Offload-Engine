@@ -21,8 +21,8 @@ SHOW_LLAMA_LOGS = os.getenv("SHOW_LLAMA_LOGS", "0") in ("1", "true", "True", "ye
 
 M_THETA = 181
 
-# ── LOG FILTER: cattura offload, sopprime lo spam CUDA-graph ─────────────────
-_CAPTURED_OFFLOAD = []           # righe utili sul caricamento GPU
+# ── LOG FILTER: captures offload, suppresses CUDA-graph spam ─────────────────
+_CAPTURED_OFFLOAD = []           # useful lines on GPU loading
 _KEEP = ("offload", "assigned to device", "layer(s) to gpu", "layers to gpu",
          "buffer size", "using device", "cuda0", "kv self size", "flash")
 _DROP = ("cuda graph", "graph warmup", "graph_compute", "prefix-match")
@@ -38,18 +38,18 @@ def _log_filter(level, text, user_data):
         sys.stderr.write(s)
         return
     if any(d in low for d in _DROP):
-        return                                  # spam per-token → silenziato
+        return                                  # per-token spam → silenced
     if any(k in low for k in _KEEP):
         line = s.strip()
         if line:
-            _CAPTURED_OFFLOAD.append(line)      # prova GPU → bufferizzata
+            _CAPTURED_OFFLOAD.append(line)      # GPU proof → buffered
 
-# Registra il filtro PRIMA di creare il modello (tenere il ref vivo!)
+# Register the filter BEFORE creating the model (keep the ref alive!)
 llama_cpp.llama_log_set(_log_filter, ctypes.c_void_p(0))
 
 
 def gpu_vram_used_mib():
-    """VRAM usata (MiB) via nvidia-smi. None se non disponibile."""
+    """VRAM used (MiB) via nvidia-smi. None if not available."""
     try:
         out = subprocess.run(
             ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
@@ -67,18 +67,18 @@ def preflight_gpu_check(requested_layers: int) -> None:
     try:
         gpu_ok = bool(llama_cpp.llama_supports_gpu_offload())
     except Exception as e:
-        print(f" [!] gpu_offload check non disponibile: {e}")
+        print(f" [!] gpu_offload check not available: {e}")
     print(f"  llama-cpp-python : {getattr(llama_cpp,'__version__','?')}")
-    print(f"  GPU offload build: {'✅ ATTIVO (CUDA)' if gpu_ok else '❌ ASSENTE (CPU-only)'}")
+    print(f"  GPU offload build: {'✅ ACTIVE (CUDA)' if gpu_ok else '❌ MISSING (CPU-only)'}")
     vram = gpu_vram_used_mib()
-    print(f"  VRAM usata ora   : {vram} MiB" if vram is not None else "  VRAM: nvidia-smi non trovato")
+    print(f"  VRAM used now    : {vram} MiB" if vram is not None else "  VRAM: nvidia-smi not found")
 
     if requested_layers > 0 and not gpu_ok:
         print("\n" + "!" * 60)
-        print(" ⚠️  GPU layers richiesti ma build CPU-only → ignorati.")
-        print("     Reinstalla con la wheel/sorgente CUDA (vedi README).")
+        print(" ⚠️  GPU layers requested but CPU-only build → ignored.")
+        print("     Reinstall with the CUDA wheel/source (see README).")
         print("!" * 60)
-        if input("\n  Continuo in CPU? (s/N): ").strip().lower() not in ("s","si","sì","y","yes"):
+        if input("\n  Continue on CPU? (y/N): ").strip().lower() not in ("y","yes"):
             sys.exit(1)
     print("=" * 60)
 
@@ -87,7 +87,7 @@ class SolitonHybridEngine:
     def __init__(self, model_path, gpu_layers, threads, mode_name):
         print(f"\n[~] INITIALIZING ENGINE IN MODE: {mode_name}")
         if not os.path.exists(model_path):
-            print(f"[-] ERROR: Model non trovato -> {model_path}")
+            print(f"[-] ERROR: Model not found -> {model_path}")
             sys.exit(1)
 
         self.gpu_layers = gpu_layers
@@ -95,7 +95,7 @@ class SolitonHybridEngine:
         try:
             print(f"[*] Allocating Tensors ({gpu_layers} GPU Layers | {threads} CPU Threads)...")
             t0 = time.time()
-            # verbose=False: nessuno spam. La prova GPU arriva dal log-filter + VRAM.
+            # verbose=False: no spam. The GPU proof comes from the log-filter + VRAM.
             self.llm = Llama(
                 model_path=model_path,
                 n_gpu_layers=gpu_layers,
@@ -103,14 +103,14 @@ class SolitonHybridEngine:
                 n_ctx=CTX_WINDOW,
                 flash_attn=True,
                 use_mmap=True,
-                verbose=True,          # emette i log → intercettati dal filtro
+                verbose=True,          # emits logs → intercepted by the filter
             )
             load_time = time.time() - t0
         except Exception as e:
             print(f"[-] Hardware Error: {e}")
             sys.exit(1)
 
-        # ── Prova GPU: righe di offload catturate + delta VRAM ──
+        # ── GPU Proof: captured offload lines + VRAM delta ──
         print(f"[+] Engine loaded in {load_time:.2f}s.")
         if _CAPTURED_OFFLOAD:
             print("\n[GPU OFFLOAD — log llama.cpp]")
@@ -119,12 +119,12 @@ class SolitonHybridEngine:
                     print(f"   • {ln}")
         vram_after = gpu_vram_used_mib()
         if vram_before is not None and vram_after is not None:
-            print(f"\n[VRAM] prima: {vram_before} MiB  →  dopo: {vram_after} MiB  "
+            print(f"\n[VRAM] before: {vram_before} MiB  →  after: {vram_after} MiB  "
                   f"(Δ +{vram_after - vram_before} MiB)")
             if gpu_layers > 0 and (vram_after - vram_before) < 50:
-                print("   ⚠️  VRAM quasi invariata: i layer NON sono saliti in GPU!")
+                print("   ⚠️  VRAM almost unchanged: layers DID NOT load onto the GPU!")
             elif gpu_layers > 0:
-                print("   ✅ Il modello è in VRAM.")
+                print("   ✅ The model is in VRAM.")
         print("-" * 60)
 
     def _prune(self, prompt_text):
@@ -134,7 +134,7 @@ class SolitonHybridEngine:
         pr = [t for t in raw if (t < 256 or t > 100000) or ((t ^ M_THETA) % 255) > 60]
         ratio = 1.0 - (len(pr) / max(1, len(raw)))
         if ratio > 0:
-            print(f"[~] Topological pruning (SPERIMENTALE): -{ratio*100:.2f}% token")
+            print(f"[~] Topological pruning (EXPERIMENTAL): -{ratio*100:.2f}% tokens")
         return pr
 
     def run_benchmark(self, prompt, max_tokens=512):
@@ -179,20 +179,20 @@ class SolitonHybridEngine:
         print(f"  - Total latency           : {total_t:.2f} s")
         v = gpu_vram_used_mib()
         if v is not None:
-            print(f"  - VRAM in uso             : {v} MiB")
+            print(f"  - VRAM in use             : {v} MiB")
         if self.gpu_layers == 0:
-            print("  - NOTE: modalità CPU (0 GPU layers).")
+            print("  - NOTE: CPU mode (0 GPU layers).")
 
     def interactive_chat(self):
         print("\n" + "=" * 60)
-        print(" 🌌 ENGINE READY — INTERACTIVE MODE ('exit' per uscire)")
+        print(" 🌌 ENGINE READY — INTERACTIVE MODE ('exit' to quit)")
         print("=" * 60)
         print("\n[SYSTEM]: Cold-start (warm-up)...")
         cold = ("<|im_start|>system\nYou are an advanced AI.<|im_end|>\n"
                 "<|im_start|>user\nIn exactly 20 words, describe the relationship "
                 "between entropy and time.<|im_end|>\n<|im_start|>assistant\n")
         self.run_benchmark(cold, max_tokens=40)
-        print("\n[!] Modello caldo in cache. Puoi chattare.")
+        print("\n[!] Model warmed up in cache. You can chat.")
         print("-" * 60)
 
         while True:
@@ -223,7 +223,7 @@ if __name__ == "__main__":
     print(" [2] Pure CPU (Logical Cores - SMT Penalty Test)")
     print(f" [3] Hybrid Offload ({ENV_GPU_LAYERS} GPU Layers + CPU)")
     print("=" * 60)
-    print(" TIP: SHOW_LLAMA_LOGS=1 per vedere TUTTI i log grezzi di llama.cpp")
+    print(" TIP: SHOW_LLAMA_LOGS=1 to see ALL raw llama.cpp logs")
     print("=" * 60 + "\n")
 
     choice = input("Select execution mode (1, 2, or 3): ").strip()
@@ -233,7 +233,7 @@ if __name__ == "__main__":
         mode, layers, threads = "PURE CPU (SMT TEST)", 0, logical
     else:
         if choice != "3":
-            print("[-] Scelta non valida. Default: Hybrid (3).")
+            print("[-] Invalid choice. Default: Hybrid (3).")
         mode, layers, threads = "HYBRID OFFLOAD", ENV_GPU_LAYERS, physical
 
     preflight_gpu_check(layers)

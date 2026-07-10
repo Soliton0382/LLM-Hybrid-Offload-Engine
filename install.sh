@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  install.sh · Hybrid-Offload Engine — installer plug&play
-#  Strategia a cascata (si ferma al primo successo):
-#     1) WHEEL precompilata CUDA   (veloce; per Python cp310-cp313)
-#     2) BUILD da sorgente CUDA    (host-compiler gcc-13/14 auto → risolve GCC15)
-#     3) FALLBACK CPU              (nessuna GPU/CUDA presente)
-#  Uso:  chmod +x install.sh && ./install.sh
+#  install.sh · Hybrid-Offload Engine — plug&play installer
+#  Cascade strategy (stops at first success):
+#     1) Precompiled CUDA WHEEL    (fast; for Python cp310-cp313)
+#     2) BUILD from CUDA source    (auto gcc-13/14 host-compiler → resolves GCC15)
+#     3) CPU FALLBACK              (no GPU/CUDA present)
+#  Usage:  chmod +x install.sh && ./install.sh
 # =============================================================================
 set -euo pipefail
 
@@ -14,12 +14,12 @@ VENV_DIR="${VENV_DIR:-.venv}"
 WHL_BASE="https://abetlen.github.io/llama-cpp-python/whl"
 
 echo "=============================================================="
-echo " 🚀 Hybrid-Offload — Installer plug&play"
+echo " 🚀 Hybrid-Offload — Plug&play Installer"
 echo "=============================================================="
 
 # ── 1. venv ──────────────────────────────────────────────────────────────────
 if [ ! -d "$VENV_DIR" ]; then
-  echo "[*] Creo virtualenv in $VENV_DIR ..."
+  echo "[*] Creating virtualenv in $VENV_DIR ..."
   "$PYTHON" -m venv "$VENV_DIR"
 fi
 # shellcheck disable=SC1090
@@ -29,11 +29,11 @@ python -m pip install --upgrade pip wheel setuptools >/dev/null
 PYTAG="cp$(python -c 'import sys;print(f"{sys.version_info.major}{sys.version_info.minor}")')"
 echo "[*] Python wheel tag: $PYTAG"
 
-# ── 2. dipendenze base ───────────────────────────────────────────────────────
-echo "[*] Installo dipendenze base..."
+# ── 2. base dependencies ───────────────────────────────────────────────────────
+echo "[*] Installing base dependencies..."
 pip install --upgrade python-dotenv psutil >/dev/null
 
-# ── 3. rilevo CUDA (dal driver o da nvcc) ────────────────────────────────────
+# ── 3. detect CUDA (from driver or nvcc) ────────────────────────────────────
 detect_cuda_tag() {
   local ver=""
   if command -v nvidia-smi >/dev/null 2>&1; then
@@ -44,7 +44,7 @@ detect_cuda_tag() {
   fi
   [ -z "$ver" ] && { echo ""; return; }
   local M m; M=$(echo "$ver" | cut -d. -f1); m=$(echo "$ver" | cut -d. -f2)
-  if   [ "$M" -ge 13 ]; then echo "cu124"       # driver nuovo → wheel più alta disp.
+  if   [ "$M" -ge 13 ]; then echo "cu124"       # new driver → highest wheel avail.
   elif [ "$M" -eq 12 ] && [ "$m" -ge 4 ]; then echo "cu124"
   elif [ "$M" -eq 12 ] && [ "$m" -eq 3 ]; then echo "cu123"
   elif [ "$M" -eq 12 ] && [ "$m" -eq 2 ]; then echo "cu122"
@@ -52,14 +52,14 @@ detect_cuda_tag() {
   else echo ""; fi
 }
 
-# Sceglie un host-compiler compatibile con nvcc (risolve il caso GCC troppo nuovo).
+# Chooses a host-compiler compatible with nvcc (resolves case of too-new GCC).
 pick_cuda_host_cxx() {
   for v in 13 14 12; do
     if command -v "g++-$v" >/dev/null 2>&1; then
       echo "/usr/bin/g++-$v"; return
     fi
   done
-  echo ""   # nessuno trovato → si userà il g++ di sistema (potrebbe fallire)
+  echo ""   # none found → system g++ will be used (might fail)
 }
 
 verify_gpu() {
@@ -75,7 +75,7 @@ PY
 
 install_wheel() {
   local tag="$1"
-  echo "[+] Provo WHEEL precompilata CUDA: $tag ($PYTAG)"
+  echo "[+] Trying precompiled CUDA WHEEL: $tag ($PYTAG)"
   pip install "llama-cpp-python" \
       --extra-index-url "$WHL_BASE/$tag" \
       --upgrade --force-reinstall --no-cache-dir 2>/dev/null
@@ -83,51 +83,51 @@ install_wheel() {
 
 build_source_cuda() {
   local hostcxx; hostcxx="$(pick_cuda_host_cxx)"
-  echo "[+] Build da SORGENTE con CUDA."
+  echo "[+] BUILD from SOURCE with CUDA."
   if [ -n "$hostcxx" ]; then
     local cxxbin="${hostcxx##*/}"; local ccbin="${cxxbin/g++/gcc}"
-    echo "    Host-compiler nvcc: $hostcxx  (risolve incompatibilità GCC recente)"
+    echo "    nvcc host-compiler: $hostcxx  (resolves recent GCC incompatibility)"
     CC="/usr/bin/$ccbin" CXX="$hostcxx" \
     CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_HOST_COMPILER=$hostcxx" \
       pip install --upgrade --force-reinstall --no-cache-dir llama-cpp-python
   else
-    echo "    (nessun g++-13/14 trovato: uso il compilatore di sistema)"
+    echo "    (no g++-13/14 found: using system compiler)"
     CMAKE_ARGS="-DGGML_CUDA=on" \
       pip install --upgrade --force-reinstall --no-cache-dir llama-cpp-python
   fi
 }
 
 install_cpu() {
-  echo "[!] Installo build CPU (nessuna GPU o CUDA non disponibile)."
+  echo "[!] Installing CPU build (no GPU or CUDA not available)."
   pip install --upgrade --force-reinstall --no-cache-dir llama-cpp-python
 }
 
-# ── 4. cascata di installazione ──────────────────────────────────────────────
+# ── 4. installation cascade ──────────────────────────────────────────────
 CUDA_TAG="$(detect_cuda_tag)"
 
 if [ -z "$CUDA_TAG" ]; then
   install_cpu
 else
-  echo "[i] GPU/CUDA rilevata → target wheel: $CUDA_TAG"
+  echo "[i] GPU/CUDA detected → target wheel: $CUDA_TAG"
   OK="false"
-  # 4.1 wheel precompilata
+  # 4.1 precompiled wheel
   if install_wheel "$CUDA_TAG" && [ "$(verify_gpu)" = "True" ]; then
-    OK="true"; echo "[+] ✅ Wheel CUDA OK."
+    OK="true"; echo "[+] ✅ CUDA Wheel OK."
   else
-    echo "[!] Wheel non disponibile per $PYTAG/$CUDA_TAG (tipico su Python 3.14)."
-    # 4.2 build sorgente con gcc pinnato
+    echo "[!] Wheel not available for $PYTAG/$CUDA_TAG (typical on Python 3.14)."
+    # 4.2 source build with pinned gcc
     if build_source_cuda && [ "$(verify_gpu)" = "True" ]; then
-      OK="true"; echo "[+] ✅ Build sorgente CUDA OK."
+      OK="true"; echo "[+] ✅ CUDA source build OK."
     fi
   fi
-  # 4.3 fallback CPU
+  # 4.3 CPU fallback
   if [ "$OK" != "true" ]; then
-    echo "[!] CUDA non riuscito → fallback CPU."
+    echo "[!] CUDA failed → CPU fallback."
     install_cpu
   fi
 fi
 
-# ── 5. verifica finale ───────────────────────────────────────────────────────
+# ── 5. final verification ───────────────────────────────────────────────────────
 echo "--------------------------------------------------------------"
 python - <<'PY'
 import llama_cpp
@@ -135,9 +135,9 @@ gpu=False
 try: gpu=bool(llama_cpp.llama_supports_gpu_offload())
 except Exception as e: print(f"[!] check: {e}")
 print(f"  llama-cpp-python : {getattr(llama_cpp,'__version__','?')}")
-print(f"  GPU OFFLOAD      : {'✅ ATTIVO (CUDA)' if gpu else '⚠️ CPU-only'}")
+print(f"  GPU OFFLOAD      : {'✅ ACTIVE (CUDA)' if gpu else '⚠️ CPU-only'}")
 PY
 echo "=============================================================="
-echo " ✅ Fatto.  Attiva con:  source $VENV_DIR/bin/activate"
-echo " ▶  Avvia:   python bench/hybrid_offload_benchmark.py"
+echo " ✅ Done.  Activate with:  source $VENV_DIR/bin/activate"
+echo " ▶  Start:   python bench/hybrid_offload_benchmark.py"
 echo "=============================================================="

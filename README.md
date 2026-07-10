@@ -44,6 +44,12 @@ By utilizing hardware-aware threading and strategic layer-splitting, this engine
 
 > ⚠️ **Prebuilt wheels are not available for Python 3.14.** On 3.14 the installer compiles from source (handled automatically by `install.sh`).
 
+> ℹ️ **No NVIDIA GPU?** `install.sh` completes fine (it falls back to a CPU-only build),
+> but `hybrid_offload_benchmark.py` will **stop on purpose** at the GPU preflight check —
+> it never runs a "fake" CPU benchmark labeled as *hybrid*. This is intentional:
+> we never lie about the numbers. The **CPU Only** rows in the Benchmarks table
+> show exactly what to expect on a GPU-less machine.
+
 ## Installation (Plug & Play)
 
 The installer auto-detects your CUDA version and installs the correct build.
