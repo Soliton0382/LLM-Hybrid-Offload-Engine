@@ -13,3 +13,12 @@ models/*
 *.soliton
 *.safetensors
 *.gguf
+
+# Secrets / API keys (NEVER commit)
+API_Key.txt
+*_Key.txt
+*api_key*
+*API_KEY*
+*.key
+*.pem
+secrets.*
