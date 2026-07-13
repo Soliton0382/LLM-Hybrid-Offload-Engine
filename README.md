@@ -283,32 +283,33 @@ measure for context selection.
 MIT — see the `LICENSE` file.
 
 
-## 9. Modalità API — SSCC come pre-processore (doppio prodotto)
 
-SSCC non serve solo in locale. Poiché la compressione a salienza avviene **client-side, a monte** della chiamata al modello, funziona con **qualsiasi provider a pagamento** (Opus, GPT, ecc.), che fatturano **a token di input**.
+## 9. API Mode — SSCC as a Pre-Processor (dual benefit)
+
+SSCC is not only for local inference. Because saliency compression happens **client-side, upstream** of the model call, it works with **any paid provider** (Opus, GPT, etc.), all of which bill **per input token**.
 
 ```
-[RAG / cronologia / documenti]
+[RAG / history / documents]
           │
           ▼
-   SSCC (locale, quasi gratis)  ──►  taglia 40–70% dei token salienti
+   SSCC (local, near-free)     ──►  drops 40–70% of tokens, keeps the salient ones
           │
           ▼
-   API costosa (Opus / GPT)     ──►  fattura SOLO sul contesto rimasto
+   Expensive API (Opus / GPT)  ──►  billed ONLY on the remaining context
 ```
 
-**La stessa formula, due modalità di risparmio:**
+**Same formula, two ways to save:**
 
-| Modalità | Dove gira SSCC | Cosa risparmia | Vantaggio |
+| Mode | Where SSCC runs | What it saves | Benefit |
 |---|---|---|---|
-| **Locale** (Hybrid Offload) | in-process | VRAM / KV-cache | +contesto per GB, zero cloud, sovranità dato |
-| **API** (pre-processore) | client-side | token di input fatturati | −40÷70% bolletta input, provider-agnostico |
+| **Local** (Hybrid Offload) | in-process | VRAM / KV-cache | +context per GB, zero cloud, data sovereignty |
+| **API** (pre-processor) | client-side | billed input tokens | −40 to 70% input bill, provider-agnostic |
 
-**Stima costo input** (assunzioni illustrative: 10M token/mese, $15/1M):
+**Input cost estimate** (illustrative assumptions: 10M tokens/month, $15/1M):
 
 ![API cost](img/chart_api_cost.png)
 
-| Modalità | Token risparmiati | Costo/mese | Accuracy |
+| Mode | Tokens saved | Cost/month | Accuracy |
 |---|---|---|---|
 | FULL | — | $150 | 100% |
 | SSCC 50% | −39.3% | $91 | 100% |
@@ -316,8 +317,8 @@ SSCC non serve solo in locale. Poiché la compressione a salienza avviene **clie
 | SSCC 25% | −60.5% | $59 | 80%* |
 | SSCC 15% | −68.6% | $47 | 80%* |
 
-\* L'80% a 25/15% è **limite del modello di generazione** (la retention a 500 trial resta 100%: l'informazione È nel contesto compresso), non una perdita di SSCC.
+\* The 80% at 25/15% is a **generation-model limit** (retention over 500 trials stays 100%: the information IS in the compressed context), not an SSCC loss.
 
-**Caveat onesto:** per calcolare la salienza serve un *embedder* per il coseno. Due strade: (a) un modello locale di embedding — costo ≈ zero, consigliato; (b) l'endpoint `/embeddings` del provider — costo minimo, molto inferiore ai token di generazione. In entrambi i casi il risparmio netto sull'input resta ampio. Non è gratis-gratis: è **quasi**-gratis.
+**Honest caveat:** computing saliency requires an *embedder* for the cosine term. Two options: (a) a local embedding model — cost ≈ zero, recommended; (b) the provider's `/embeddings` endpoint — minimal cost, far below generation tokens. In both cases the net input saving stays large. It is not free-free: it is **near**-free.
 
-Riferimento implementativo provider-agnostico: `sscc_api_client.py` (try it offline: `python3 sscc_api_client.py --demo`).
+Provider-agnostic reference implementation: `sscc_api_client.py` (try it offline: `python3 sscc_api_client.py --demo`).
